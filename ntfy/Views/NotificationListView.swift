@@ -336,14 +336,20 @@ struct NotificationRowView: View {
                     .bold()
                     .padding([.bottom], 2)
             }
-            // Render message as Markdown for clickable links
-            Markdown(notification.formatMessage())
-                .markdownTheme(.gitHub)
-                .environment(\.openURL, OpenURLAction { url in
-                    safariURL = url
-                    showSafari = true
-                    return .handled
-                })
+            // Render Markdown content with MarkdownUI (clickable links open in-app Safari);
+            // fall back to plain Text for non-markdown notifications
+            if notification.contentType == "text/markdown" {
+                Markdown(notification.formatMessage())
+                    .markdownTheme(.gitHub)
+                    .environment(\.openURL, OpenURLAction { url in
+                        safariURL = url
+                        showSafari = true
+                        return .handled
+                    })
+            } else {
+                Text(notification.formatMessage())
+                    .font(.body)
+            }
             if !notification.nonEmojiTags().isEmpty {
                 Text("Tags: " + notification.nonEmojiTags().joined(separator: ", "))
                     .font(.subheadline)
