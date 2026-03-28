@@ -1,5 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import MarkdownUI
+import SafariServices
 
 enum ActiveAlert {
     case clear, unsubscribe, selected
@@ -19,6 +21,8 @@ struct NotificationListView: View {
     
     @State private var showAlert = false
     @State private var activeAlert: ActiveAlert = .clear
+    @State private var showingRenameSheet = false
+    @State private var newDisplayName = ""
     
     private var subscriptionManager: SubscriptionManager {
         return SubscriptionManager(store: store)
@@ -82,6 +86,10 @@ struct NotificationListView: View {
                         }
                         if notificationsModel.notifications.count > 0 {
                             editButton
+                        }
+                        Button("Rename") {
+                            self.newDisplayName = subscription.customDisplayName ?? ""
+                            self.showingRenameSheet = true
                         }
                         Button("Send test notification") {
                             self.sendTestNotification()
@@ -168,6 +176,35 @@ struct NotificationListView: View {
         .onAppear {
             cancelSubscriptionNotifications()
         }
+        .sheet(isPresented: $showingRenameSheet) {
+            NavigationView {
+                Form {
+                    Section(header: Text("Display name")) {
+                        TextField(topicShortUrl(baseUrl: subscription.baseUrl ?? "", topic: subscription.topic ?? ""), text: $newDisplayName)
+                            .autocapitalization(.none)
+                            .disableAutocorrection(true)
+                    }
+                    Section(footer: Text("Leave empty to show the default topic URL.")) {
+                        EmptyView()
+                    }
+                }
+                .navigationTitle("Rename")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        Button("Cancel") {
+                            showingRenameSheet = false
+                        }
+                    }
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button("Save") {
+                            store.updateSubscription(subscription: subscription, displayName: newDisplayName)
+                            showingRenameSheet = false
+                        }
+                    }
+                }
+            }
+        }
     }
     
     private var editButton: some View {
@@ -251,7 +288,9 @@ struct NotificationListView: View {
 struct NotificationRowView: View {
     @EnvironmentObject private var store: Store
     @ObservedObject var notification: Notification
-    
+    @State private var showSafari = false
+    @State private var safariURL: URL?
+
     var body: some View {
         if #available(iOS 15.0, *) {
             notificationRow
@@ -262,8 +301,18 @@ struct NotificationRowView: View {
                         Label("Delete", systemImage: "trash.circle")
                     }
                 }
+                .sheet(isPresented: $showSafari) {
+                    if let url = safariURL {
+                        SafariView(url: url)
+                    }
+                }
         } else {
             notificationRow
+                .sheet(isPresented: $showSafari) {
+                    if let url = safariURL {
+                        SafariView(url: url)
+                    }
+                }
         }
     }
     
@@ -287,8 +336,20 @@ struct NotificationRowView: View {
                     .bold()
                     .padding([.bottom], 2)
             }
-            Text(notification.formatMessage())
-                .font(.body)
+            // Render Markdown content with MarkdownUI (clickable links open in-app Safari);
+            // fall back to plain Text for non-markdown notifications
+            if notification.contentType == "text/markdown" {
+                Markdown(notification.formatMessage())
+                    .markdownTheme(.gitHub)
+                    .environment(\.openURL, OpenURLAction { url in
+                        safariURL = url
+                        showSafari = true
+                        return .handled
+                    })
+            } else {
+                Text(notification.formatMessage())
+                    .font(.body)
+            }
             if !notification.nonEmojiTags().isEmpty {
                 Text("Tags: " + notification.nonEmojiTags().joined(separator: ", "))
                     .font(.subheadline)
@@ -345,5 +406,18 @@ struct NotificationListView_Previews: PreviewProvider {
                 .environmentObject(store)
         }
     }
+}
+
+// Safari View for in-app browsing
+struct SafariView: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> SFSafariViewController {
+        let safari = SFSafariViewController(url: url)
+        safari.preferredControlTintColor = .systemBlue
+        return safari
+    }
+
+    func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
 }
 
